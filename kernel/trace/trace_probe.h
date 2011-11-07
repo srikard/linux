@@ -48,6 +48,7 @@
 #define FIELD_STRING_IP "__probe_ip"
 #define FIELD_STRING_RETIP "__probe_ret_ip"
 #define FIELD_STRING_FUNC "__probe_func"
+#define FIELD_STRING_PID "__probe_pid"
 
 #undef DEFINE_FIELD
 #define DEFINE_FIELD(type, item, name, is_signed)			\
@@ -65,6 +66,7 @@
 #define TP_FLAG_TRACE	1
 #define TP_FLAG_PROFILE	2
 #define TP_FLAG_REGISTERED 4
+#define TP_FLAG_UPROBE	8
 
 
 /* data_rloc: data relative location, compatible with u32 */
@@ -131,7 +133,7 @@ static inline __kprobes void call_fetch(struct fetch_param *fprm,
 }
 
 /* Check the name is good for event/group/fields */
-static int is_good_name(const char *name)
+static inline int is_good_name(const char *name)
 {
 	if (!isalpha(*name) && *name != '_')
 		return 0;
@@ -143,7 +145,7 @@ static int is_good_name(const char *name)
 }
 
 extern int traceprobe_parse_probe_arg(char *arg, ssize_t *size,
-		   struct probe_arg *parg, bool is_return);
+		   struct probe_arg *parg, bool is_return, bool is_kprobe);
 
 extern int traceprobe_conflict_field_name(const char *name,
 			       struct probe_arg *args, int narg);
