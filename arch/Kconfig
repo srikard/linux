@@ -63,6 +63,7 @@ config OPTPROBES
 
 config UPROBES
 	bool "User-space probes (EXPERIMENTAL)"
+	select MM_OWNER
 	help
 	  Uprobes enables kernel subsystems to establish probepoints
 	  in user applications and execute handler functions when
