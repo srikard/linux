@@ -24,10 +24,39 @@
 #include <linux/kernel.h>
 #include <linux/highmem.h>
 #include <linux/slab.h>
+#include <linux/sched.h>
 #include <linux/uprobes.h>
 
 static struct rb_root uprobes_tree = RB_ROOT;
 static DEFINE_SPINLOCK(uprobes_treelock);	/* serialize (un)register */
+
+/*
+ * Maintain a temporary per vma info that can be used to search if a vma
+ * has already been handled. This structure is introduced since extending
+ * vm_area_struct wasnt recommended.
+ */
+struct vma_info {
+	struct list_head probe_list;
+	struct mm_struct *mm;
+	loff_t vaddr;
+};
+
+/*
+ * valid_vma: Verify if the specified vma is an executable vma
+ *	- Return 1 if the specified virtual address is in an
+ *	  executable vma.
+ */
+static bool valid_vma(struct vm_area_struct *vma)
+{
+	if (!vma->vm_file)
+		return false;
+
+	if ((vma->vm_flags & (VM_READ|VM_WRITE|VM_EXEC|VM_SHARED)) ==
+						(VM_READ|VM_EXEC))
+		return true;
+
+	return false;
+}
 
 static int match_uprobe(struct uprobe *l, struct uprobe *r)
 {
@@ -203,6 +232,18 @@ static bool del_consumer(struct uprobe *uprobe,
 	return ret;
 }
 
+static int install_breakpoint(struct mm_struct *mm)
+{
+	/* Placeholder: Yet to be implemented */
+	return 0;
+}
+
+static void remove_breakpoint(struct mm_struct *mm)
+{
+	/* Placeholder: Yet to be implemented */
+	return;
+}
+
 static void delete_uprobe(struct uprobe *uprobe)
 {
 	unsigned long flags;
@@ -212,4 +253,226 @@ static void delete_uprobe(struct uprobe *uprobe)
 	spin_unlock_irqrestore(&uprobes_treelock, flags);
 	put_uprobe(uprobe);
 	iput(uprobe->inode);
+}
+
+static struct vma_info *__find_next_vma_info(struct list_head *head,
+			loff_t offset, struct address_space *mapping,
+			struct vma_info *vi)
+{
+	struct prio_tree_iter iter;
+	struct vm_area_struct *vma;
+	struct vma_info *tmpvi;
+	loff_t vaddr;
+	unsigned long pgoff = offset >> PAGE_SHIFT;
+	int existing_vma;
+
+	vma_prio_tree_foreach(vma, &iter, &mapping->i_mmap, pgoff, pgoff) {
+		if (!vma || !valid_vma(vma))
+			return NULL;
+
+		existing_vma = 0;
+		vaddr = vma->vm_start + offset;
+		vaddr -= vma->vm_pgoff << PAGE_SHIFT;
+		list_for_each_entry(tmpvi, head, probe_list) {
+			if (tmpvi->mm == vma->vm_mm && tmpvi->vaddr == vaddr) {
+				existing_vma = 1;
+				break;
+			}
+		}
+		if (!existing_vma &&
+				atomic_inc_not_zero(&vma->vm_mm->mm_users)) {
+			vi->mm = vma->vm_mm;
+			vi->vaddr = vaddr;
+			list_add(&vi->probe_list, head);
+			return vi;
+		}
+	}
+	return NULL;
+}
+
+/*
+ * Iterate in the rmap prio tree  and find a vma where a probe has not
+ * yet been inserted.
+ */
+static struct vma_info *find_next_vma_info(struct list_head *head,
+			loff_t offset, struct address_space *mapping)
+{
+	struct vma_info *vi, *retvi;
+	vi = kzalloc(sizeof(struct vma_info), GFP_KERNEL);
+	if (!vi)
+		return ERR_PTR(-ENOMEM);
+
+	INIT_LIST_HEAD(&vi->probe_list);
+	mutex_lock(&mapping->i_mmap_mutex);
+	retvi = __find_next_vma_info(head, offset, mapping, vi);
+	mutex_unlock(&mapping->i_mmap_mutex);
+
+	if (!retvi)
+		kfree(vi);
+	return retvi;
+}
+
+static int __register_uprobe(struct inode *inode, loff_t offset,
+				struct uprobe *uprobe)
+{
+	struct list_head try_list;
+	struct vm_area_struct *vma;
+	struct address_space *mapping;
+	struct vma_info *vi, *tmpvi;
+	struct mm_struct *mm;
+	int ret = 0;
+
+	mapping = inode->i_mapping;
+	INIT_LIST_HEAD(&try_list);
+	while ((vi = find_next_vma_info(&try_list, offset,
+							mapping)) != NULL) {
+		if (IS_ERR(vi)) {
+			ret = -ENOMEM;
+			break;
+		}
+		mm = vi->mm;
+		down_read(&mm->mmap_sem);
+		vma = find_vma(mm, (unsigned long) vi->vaddr);
+		if (!vma || !valid_vma(vma)) {
+			list_del(&vi->probe_list);
+			kfree(vi);
+			up_read(&mm->mmap_sem);
+			mmput(mm);
+			continue;
+		}
+		ret = install_breakpoint(mm);
+		if (ret && (ret != -ESRCH || ret != -EEXIST)) {
+			up_read(&mm->mmap_sem);
+			mmput(mm);
+			break;
+		}
+		ret = 0;
+		up_read(&mm->mmap_sem);
+		mmput(mm);
+	}
+	list_for_each_entry_safe(vi, tmpvi, &try_list, probe_list) {
+		list_del(&vi->probe_list);
+		kfree(vi);
+	}
+	return ret;
+}
+
+static void __unregister_uprobe(struct inode *inode, loff_t offset,
+						struct uprobe *uprobe)
+{
+	struct list_head try_list;
+	struct address_space *mapping;
+	struct vma_info *vi, *tmpvi;
+	struct vm_area_struct *vma;
+	struct mm_struct *mm;
+
+	mapping = inode->i_mapping;
+	INIT_LIST_HEAD(&try_list);
+	while ((vi = find_next_vma_info(&try_list, offset,
+							mapping)) != NULL) {
+		if (IS_ERR(vi))
+			break;
+		mm = vi->mm;
+		down_read(&mm->mmap_sem);
+		vma = find_vma(mm, (unsigned long) vi->vaddr);
+		if (!vma || !valid_vma(vma)) {
+			list_del(&vi->probe_list);
+			kfree(vi);
+			up_read(&mm->mmap_sem);
+			mmput(mm);
+			continue;
+		}
+		remove_breakpoint(mm);
+		up_read(&mm->mmap_sem);
+		mmput(mm);
+	}
+
+	list_for_each_entry_safe(vi, tmpvi, &try_list, probe_list) {
+		list_del(&vi->probe_list);
+		kfree(vi);
+	}
+	delete_uprobe(uprobe);
+}
+
+/*
+ * register_uprobe - register a probe
+ * @inode: the file in which the probe has to be placed.
+ * @offset: offset from the start of the file.
+ * @consumer: information on howto handle the probe..
+ *
+ * Apart from the access refcount, register_uprobe() takes a creation
+ * refcount (thro alloc_uprobe) if and only if this @uprobe is getting
+ * inserted into the rbtree (i.e first consumer for a @inode:@offset
+ * tuple).  Creation refcount stops unregister_uprobe from freeing the
+ * @uprobe even before the register operation is complete. Creation
+ * refcount is released when the last @consumer for the @uprobe
+ * unregisters.
+ *
+ * Return errno if it cannot successully install probes
+ * else return 0 (success)
+ */
+int register_uprobe(struct inode *inode, loff_t offset,
+				struct uprobe_consumer *consumer)
+{
+	struct uprobe *uprobe;
+	int ret = 0;
+
+	inode = igrab(inode);
+	if (!inode || !consumer || consumer->next)
+		return -EINVAL;
+
+	if (offset > inode->i_size)
+		return -EINVAL;
+
+	mutex_lock(&inode->i_mutex);
+	uprobe = alloc_uprobe(inode, offset);
+	if (!uprobe)
+		return -ENOMEM;
+
+	if (!add_consumer(uprobe, consumer)) {
+		ret = __register_uprobe(inode, offset, uprobe);
+		if (ret)
+			__unregister_uprobe(inode, offset, uprobe);
+	}
+
+	mutex_unlock(&inode->i_mutex);
+	put_uprobe(uprobe);
+	iput(inode);
+	return ret;
+}
+
+/*
+ * unregister_uprobe - unregister a already registered probe.
+ * @inode: the file in which the probe has to be removed.
+ * @offset: offset from the start of the file.
+ * @consumer: identify which probe if multiple probes are colocated.
+ */
+void unregister_uprobe(struct inode *inode, loff_t offset,
+				struct uprobe_consumer *consumer)
+{
+	struct uprobe *uprobe;
+
+	inode = igrab(inode);
+	if (!inode || !consumer)
+		return;
+
+	if (offset > inode->i_size)
+		return;
+
+	uprobe = find_uprobe(inode, offset);
+	if (!uprobe)
+		return;
+
+	if (!del_consumer(uprobe, consumer)) {
+		put_uprobe(uprobe);
+		return;
+	}
+
+	mutex_lock(&inode->i_mutex);
+	if (!uprobe->consumers)
+		__unregister_uprobe(inode, offset, uprobe);
+
+	mutex_unlock(&inode->i_mutex);
+	put_uprobe(uprobe);
+	iput(inode);
 }
