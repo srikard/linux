@@ -24,7 +24,7 @@
  */
 
 #include <linux/rbtree.h>
-
+#include <linux/signal.h>	/* sigpending */
 struct vm_area_struct;
 #ifdef CONFIG_ARCH_SUPPORTS_UPROBES
 #include <asm/uprobes.h>
@@ -90,6 +90,7 @@ struct uprobe_task {
 	struct uprobe_task_arch_info tskinfo;
 
 	struct uprobe *active_uprobe;
+	struct sigpending delayed;
 };
 
 /*

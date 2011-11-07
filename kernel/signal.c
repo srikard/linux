@@ -1034,6 +1034,11 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 		return 0;
 
 	pending = group ? &t->signal->shared_pending : &t->pending;
+#ifdef CONFIG_UPROBES
+	if (!group && t->utask && t->utask->active_uprobe)
+		pending = &t->utask->delayed;
+#endif
+
 	/*
 	 * Short-circuit ignored signals and support queuing
 	 * exactly one non-rt signal, so that we can get more
@@ -1105,6 +1110,11 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			trace_signal_lose_info(sig, group, info);
 		}
 	}
+
+#ifdef CONFIG_UPROBES
+	if (!group && t->utask && t->utask->active_uprobe)
+		return 0;
+#endif
 
 out_set:
 	signalfd_notify(t, sig);
@@ -1577,6 +1587,13 @@ int send_sigqueue(struct sigqueue *q, struct task_struct *t, int group)
 	}
 	q->info.si_overrun = 0;
 
+#ifdef CONFIG_UPROBES
+	if (!group && t->utask && t->utask->active_uprobe) {
+		pending = &t->utask->delayed;
+		list_add_tail(&q->list, &pending->list);
+		goto out;
+	}
+#endif
 	signalfd_notify(t, sig);
 	pending = group ? &t->signal->shared_pending : &t->pending;
 	list_add_tail(&q->list, &pending->list);
@@ -2207,7 +2224,10 @@ relock:
 			spin_unlock_irq(&sighand->siglock);
 			goto relock;
 		}
-
+#ifdef CONFIG_UPROBES
+		if (current->utask && current->utask->active_uprobe)
+			break;
+#endif
 		signr = dequeue_signal(current, &current->blocked, info);
 
 		if (!signr)

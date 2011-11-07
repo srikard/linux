@@ -1298,11 +1298,14 @@ void free_uprobe_utask(struct task_struct *tsk)
 static struct uprobe_task *add_utask(void)
 {
 	struct uprobe_task *utask;
+	struct sigpending *delayed;
 
 	utask = kzalloc(sizeof *utask, GFP_KERNEL);
 	if (unlikely(utask == NULL))
 		return ERR_PTR(-ENOMEM);
 
+	delayed = &utask->delayed;
+	INIT_LIST_HEAD(&delayed->list);
 	utask->active_uprobe = NULL;
 	current->utask = utask;
 	return utask;
@@ -1335,6 +1338,16 @@ static bool sstep_complete(struct uprobe *uprobe, struct pt_regs *regs)
 		return false;
 	post_xol(uprobe, regs);
 	return true;
+}
+
+static void pushback_signals(struct sigpending *pending)
+{
+	struct sigqueue *q, *tmpq;
+
+	list_for_each_entry_safe(q, tmpq, &pending->list, list) {
+		list_del(&q->list);
+		send_sigqueue(q, current, 0);
+	}
 }
 
 /*
@@ -1373,7 +1386,6 @@ void uprobe_notify_resume(struct pt_regs *regs)
 			if (!utask)
 				goto cleanup_ret;
 		}
-		/* TODO Start queueing signals. */
 		utask->active_uprobe = u;
 		handler_chain(u, regs);
 		utask->state = UTASK_SSTEP;
@@ -1390,8 +1402,7 @@ void uprobe_notify_resume(struct pt_regs *regs)
 			utask->state = UTASK_RUNNING;
 			user_disable_single_step(current);
 			xol_free_insn_slot(current);
-
-			/* TODO Stop queueing signals. */
+			pushback_signals(&current->utask->delayed);
 		}
 	}
 	return;
@@ -1404,9 +1415,8 @@ cleanup_ret:
 	if (u) {
 		put_uprobe(u);
 		set_instruction_pointer(regs, probept);
-	} else {
-		/*TODO Return SIGTRAP signal */
-	}
+	} else
+		send_sig(SIGTRAP, current, 0);
 }
 
 /*
