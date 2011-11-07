@@ -57,6 +57,7 @@
 #include <linux/swapops.h>
 #include <linux/elf.h>
 #include <linux/gfp.h>
+#include <linux/uprobes.h>
 
 #include <asm/io.h>
 #include <asm/pgalloc.h>
@@ -1336,6 +1337,9 @@ unsigned long unmap_vmas(struct mmu_gather *tlb,
 
 		if (unlikely(is_pfn_mapping(vma)))
 			untrack_pfn_vma(vma, 0, 0);
+
+		if (vma->vm_file)
+			munmap_uprobe(vma);
 
 		while (start != end) {
 			if (unlikely(is_vm_hugetlb_page(vma))) {

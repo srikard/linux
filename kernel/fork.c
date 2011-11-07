@@ -66,6 +66,7 @@
 #include <linux/user-return-notifier.h>
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
+#include <linux/uprobes.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -738,6 +739,10 @@ struct mm_struct *dup_mm(struct task_struct *tsk)
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	mm->pmd_huge_pte = NULL;
+#endif
+#ifdef CONFIG_UPROBES
+	atomic_set(&mm->mm_uprobes_count,
+			atomic_read(&oldmm->mm_uprobes_count));
 #endif
 
 	if (!mm_init(mm, tsk))
