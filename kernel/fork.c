@@ -195,6 +195,7 @@ void __put_task_struct(struct task_struct *tsk)
 	delayacct_tsk_free(tsk);
 	put_signal_struct(tsk->signal);
 
+	free_uprobe_utask(tsk);
 	if (!profile_handoff_task(tsk))
 		free_task(tsk);
 }
@@ -1284,6 +1285,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 #endif
 	INIT_LIST_HEAD(&p->pi_state_list);
 	p->pi_state_cache = NULL;
+#endif
+#ifdef CONFIG_UPROBES
+	p->utask = NULL;
 #endif
 	/*
 	 * sigaltstack should be cleared when sharing the same VM
