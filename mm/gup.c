@@ -1120,8 +1120,8 @@ long get_user_pages_longterm(unsigned long start, unsigned long nr_pages,
 		return -EINVAL;
 
 	if (!vmas) {
-		vmas = kzalloc(sizeof(struct vm_area_struct *) * nr_pages,
-				GFP_KERNEL);
+		vmas = kcalloc(nr_pages, sizeof(struct vm_area_struct *),
+			       GFP_KERNEL);
 		if (!vmas)
 			return -ENOMEM;
 	}
