@@ -1,6 +1,3 @@
-config HAVE_ARCH_KASAN
-	bool
-
 if HAVE_ARCH_KASAN
 
 config KASAN
