@@ -82,14 +82,6 @@
 #define LAST_CPUPID_WIDTH 0
 #endif
 
-#define MATTR_SHIFT 1
-
-#if SECTIONS_WIDTH+ZONES_WIDTH+NODES_SHIFT+LAST_CPUPID_SHIFT + MATTR_SHIFT <= BITS_PER_LONG - NR_PAGEFLAGS
-#define MATTR_WIDTH MATTR_SHIFT
-#else
-#define MATTR_WIDTH 0
-#endif
-
 /*
  * We are going to use the flags for the page to node mapping if its in
  * there.  This includes the case where there is no node, so it is implicit.

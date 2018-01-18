@@ -760,7 +760,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define NODES_PGOFF		(SECTIONS_PGOFF - NODES_WIDTH)
 #define ZONES_PGOFF		(NODES_PGOFF - ZONES_WIDTH)
 #define LAST_CPUPID_PGOFF	(ZONES_PGOFF - LAST_CPUPID_WIDTH)
-#define MATTR_PGOFF		(LAST_CPUPID_PGOFF - MATTR_WIDTH)
 
 /*
  * Define the bit shifts to access each section.  For non-existent
@@ -771,7 +770,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define NODES_PGSHIFT		(NODES_PGOFF * (NODES_WIDTH != 0))
 #define ZONES_PGSHIFT		(ZONES_PGOFF * (ZONES_WIDTH != 0))
 #define LAST_CPUPID_PGSHIFT	(LAST_CPUPID_PGOFF * (LAST_CPUPID_WIDTH != 0))
-#define MATTR_PGSHIFT		(MATTR_PGOFF * (MATTR_WIDTH != 0))
 
 /* NODE:ZONE or SECTION:ZONE is used to ID a zone for the buddy allocator */
 #ifdef NODE_NOT_IN_PAGE_FLAGS
@@ -795,7 +793,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
 #define LAST_CPUPID_MASK	((1UL << LAST_CPUPID_SHIFT) - 1)
 #define ZONEID_MASK		((1UL << ZONEID_SHIFT) - 1)
-#define MATTR_MASK		((1UL << MATTR_SHIFT) - 1)
 
 static inline enum zone_type page_zonenum(const struct page *page)
 {
@@ -1039,8 +1036,6 @@ static inline void set_page_zone(struct page *page, enum zone_type zone)
 {
 	page->flags &= ~(ZONES_MASK << ZONES_PGSHIFT);
 	page->flags |= (zone & ZONES_MASK) << ZONES_PGSHIFT;
-	page->flags |= (2 & MATTR_MASK) << MATTR_SHIFT;
-	page->flags = 0;
 }
 
 static inline void set_page_node(struct page *page, unsigned long node)
