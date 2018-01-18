@@ -466,6 +466,7 @@ static int __init early_init_dt_scan_drconf_memory(unsigned long node)
 	unsigned long n, flags;
 	u64 base, size, memblock_size;
 	unsigned int is_kexec_kdump = 0, rngs;
+	int count = 0;
 
 	ls = of_get_flat_dt_prop(node, "ibm,lmb-size", &l);
 	if (ls == NULL || l < dt_root_size_cells * sizeof(__be32))
@@ -523,7 +524,17 @@ static int __init early_init_dt_scan_drconf_memory(unsigned long node)
 				if ((base + size) > 0x80000000ul)
 					size = 0x80000000ul - base;
 			}
-			memblock_add(base, size);
+
+			if (count < 20)
+				memblock_add(base, size, MEMBLOCK_MATTR_1);
+
+			if (count > 20 && count < 40)
+				memblock_add(base, size, MEMBLOCK_MATTR_2);
+
+			if (count > 40)
+				memblock_add(base, size, MEMBLOCK_MATTR_3);
+			count++;
+
 		} while (--rngs);
 	}
 	memblock_dump_all();
@@ -579,7 +590,7 @@ void __init early_init_dt_add_memory_arch(u64 base, u64 size)
 
 	/* Add the chunk to the MEMBLOCK list */
 	if (add_mem_to_memblock)
-		memblock_add(base, size);
+		memblock_add(base, size, MEMBLOCK_MATTR_0);
 }
 
 static void __init early_reserve_mem_dt(void)

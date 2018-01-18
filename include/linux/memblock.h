@@ -28,10 +28,22 @@ enum {
 	MEMBLOCK_NOMAP		= 0x4,	/* don't add to kernel direct mapping */
 };
 
+/* Simplistic mattr definitions, will change later */
+enum {
+	MEMBLOCK_MATTR_0	= 0x0,	/* System RAM */
+	MEMBLOCK_MATTR_1	= 0x1,
+	MEMBLOCK_MATTR_2	= 0x2,
+	MEMBLOCK_MATTR_3	= 0x3,
+	MEMBLOCK_MATTR_4	= 0x4,
+	MEMBLOCK_MATTR_5	= 0x5,
+	MEMBLOCK_MATTR_6	= 0x6,
+};
+
 struct memblock_region {
 	phys_addr_t base;
 	phys_addr_t size;
 	unsigned long flags;
+	unsigned long mattr;
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
 	int nid;
 #endif
@@ -77,7 +89,7 @@ phys_addr_t memblock_find_in_range(phys_addr_t start, phys_addr_t end,
 				   phys_addr_t size, phys_addr_t align);
 void memblock_allow_resize(void);
 int memblock_add_node(phys_addr_t base, phys_addr_t size, int nid);
-int memblock_add(phys_addr_t base, phys_addr_t size);
+int memblock_add(phys_addr_t base, phys_addr_t size, unsigned long mattr);
 int memblock_remove(phys_addr_t base, phys_addr_t size);
 int memblock_free(phys_addr_t base, phys_addr_t size);
 int memblock_reserve(phys_addr_t base, phys_addr_t size);
@@ -94,9 +106,14 @@ ulong choose_memblock_flags(void);
 /* Low level functions */
 int memblock_add_range(struct memblock_type *type,
 		       phys_addr_t base, phys_addr_t size,
-		       int nid, unsigned long flags);
+		       int nid, unsigned long flags, unsigned long mattr);
 
 void __next_mem_range(u64 *idx, int nid, ulong flags,
+		      struct memblock_type *type_a,
+		      struct memblock_type *type_b, phys_addr_t *out_start,
+		      phys_addr_t *out_end, int *out_nid);
+
+void __next_mem_range_mod(u64 *idx, int nid, ulong flags, unsigned long mattr,
 		      struct memblock_type *type_a,
 		      struct memblock_type *type_b, phys_addr_t *out_start,
 		      phys_addr_t *out_end, int *out_nid);
@@ -131,6 +148,15 @@ void __memblock_free_late(phys_addr_t base, phys_addr_t size);
 	     i != (u64)ULLONG_MAX;					\
 	     __next_mem_range(&i, nid, flags, type_a, type_b,		\
 			      p_start, p_end, p_nid))
+
+#define for_each_mem_range_mod(i, type_a, type_b, nid, flags, mattr,		\
+			   p_start, p_end, p_nid)				\
+	for (i = 0, __next_mem_range_mod(&i, nid, flags, mattr, type_a, type_b,	\
+				     p_start, p_end, p_nid);			\
+	     i != (u64)ULLONG_MAX;						\
+	     __next_mem_range_mod(&i, nid, flags, mattr, type_a, type_b,	\
+			      p_start, p_end, p_nid))
+
 
 /**
  * for_each_mem_range_rev - reverse iterate through memblock areas from
@@ -220,6 +246,9 @@ unsigned long memblock_next_valid_pfn(unsigned long pfn, unsigned long max_pfn);
 	for_each_mem_range(i, &memblock.memory, &memblock.reserved,	\
 			   nid, flags, p_start, p_end, p_nid)
 
+#define for_each_free_mem_range_mod(i, nid, flags, mattr, p_start, p_end, p_nid)	\
+	for_each_mem_range_mod(i, &memblock.memory, &memblock.reserved,			\
+			   nid, flags, mattr, p_start, p_end, p_nid)
 /**
  * for_each_free_mem_range_reverse - rev-iterate through free memblock areas
  * @i: u64 used as loop variable
@@ -338,11 +367,18 @@ bool memblock_is_reserved(phys_addr_t addr);
 bool memblock_is_region_reserved(phys_addr_t base, phys_addr_t size);
 
 extern void __memblock_dump_all(void);
+extern void __memblock_dump_memory(void);
 
 static inline void memblock_dump_all(void)
 {
 	if (memblock_debug)
 		__memblock_dump_all();
+}
+
+static inline void memblock_dump_memory(void)
+
+{
+	__memblock_dump_memory();
 }
 
 /**

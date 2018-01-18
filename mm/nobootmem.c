@@ -17,6 +17,7 @@
 #include <linux/range.h>
 #include <linux/memblock.h>
 #include <linux/bootmem.h>
+#include <linux/node.h>
 
 #include <asm/bug.h>
 #include <asm/io.h>
@@ -143,8 +144,16 @@ static unsigned long __init free_low_memory_core_early(void)
 	 *  because in some case like Node0 doesn't have RAM installed
 	 *  low ram will be on Node1
 	 */
-	for_each_free_mem_range(i, NUMA_NO_NODE, MEMBLOCK_NONE, &start, &end,
-				NULL)
+	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_0, &start, &end, NULL)
+		count += __free_memory_core(start, end);
+
+	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_1, &start, &end, NULL)
+		count += __free_memory_core(start, end);
+
+	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_2, &start, &end, NULL)
+		count += __free_memory_core(start, end);
+
+	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_3, &start, &end, NULL)
 		count += __free_memory_core(start, end);
 
 	return count;

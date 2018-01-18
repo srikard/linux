@@ -1110,7 +1110,7 @@ static int pseries_add_mem_node(struct device_node *np)
 	/*
 	 * Update memory region to represent the memory add
 	 */
-	ret = memblock_add(base, lmb_size);
+	ret = memblock_add(base, lmb_size, MEMBLOCK_MATTR_0);
 	return (ret < 0) ? -EINVAL : 0;
 }
 
@@ -1157,7 +1157,7 @@ static int pseries_update_drconf_memory(struct of_reconfig_data *pr)
 			    (be32_to_cpu(new_drmem[i].flags) &
 			    DRCONF_MEM_ASSIGNED)) {
 			rc = memblock_add(be64_to_cpu(old_drmem[i].base_addr),
-					  memblock_size);
+					  memblock_size, MEMBLOCK_MATTR_0);
 			rc = (rc < 0) ? -EINVAL : 0;
 			break;
 		}

@@ -710,6 +710,7 @@ static void __init parse_drconf_memory(struct device_node *memory)
 
 static int __init parse_numa_properties(void)
 {
+	struct memblock_region *reg;
 	struct device_node *memory;
 	int default_nid = 0;
 	unsigned long i;
@@ -802,6 +803,21 @@ new_range:
 	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
 	if (memory)
 		parse_drconf_memory(memory);
+
+	/* Create a dummy nodes and move attribute memory there */
+	for_each_memblock(memory, reg) {
+		if (reg->mattr == MEMBLOCK_MATTR_1)
+			memblock_set_node(reg->base, reg->size, &memblock.memory, 100);
+
+		if (reg->mattr == MEMBLOCK_MATTR_2)
+			memblock_set_node(reg->base, reg->size, &memblock.memory, 101);
+
+		if (reg->mattr == MEMBLOCK_MATTR_3)
+			memblock_set_node(reg->base, reg->size, &memblock.memory, 102);
+	}
+	node_set_online(100);
+	node_set_online(101);
+	node_set_online(102);
 
 	return 0;
 }

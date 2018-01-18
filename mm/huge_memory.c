@@ -25,6 +25,7 @@
 #include <linux/pfn_t.h>
 #include <linux/mman.h>
 #include <linux/memremap.h>
+#include <linux/memblock.h>
 #include <linux/pagemap.h>
 #include <linux/debugfs.h>
 #include <linux/migrate.h>
@@ -217,6 +218,20 @@ ssize_t single_hugepage_flag_store(struct kobject *kobj,
 	return count;
 }
 
+static ssize_t memblock_show(struct kobject *kobj,
+			   struct kobj_attribute *attr, char *buf)
+{
+	memblock_dump_memory();
+	return sprintf(buf, "Check dmesg for memblock details\n");
+}
+
+static ssize_t memblock_store(struct kobject *kobj,
+			    struct kobj_attribute *attr,
+			    const char *buf, size_t count)
+{
+	return 0;
+}
+
 static ssize_t defrag_show(struct kobject *kobj,
 			   struct kobj_attribute *attr, char *buf)
 {
@@ -273,6 +288,9 @@ static ssize_t defrag_store(struct kobject *kobj,
 static struct kobj_attribute defrag_attr =
 	__ATTR(defrag, 0644, defrag_show, defrag_store);
 
+static struct kobj_attribute memblock_attr =
+	__ATTR(memblock, 0644, memblock_show, memblock_store);
+
 static ssize_t use_zero_page_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
@@ -317,6 +335,7 @@ static struct kobj_attribute debug_cow_attr =
 static struct attribute *hugepage_attr[] = {
 	&enabled_attr.attr,
 	&defrag_attr.attr,
+	&memblock_attr.attr,
 	&use_zero_page_attr.attr,
 	&hpage_pmd_size_attr.attr,
 #if defined(CONFIG_SHMEM) && defined(CONFIG_TRANSPARENT_HUGE_PAGECACHE)

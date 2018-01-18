@@ -459,6 +459,7 @@ struct zone {
 
 	/* free areas of different sizes */
 	struct free_area	free_area[MAX_ORDER];
+	struct free_area	**dfree_area;
 
 	/* zone flags, see below */
 	unsigned long		flags;

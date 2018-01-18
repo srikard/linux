@@ -443,7 +443,7 @@ static void __init_memblock memblock_merge_regions(struct memblock_type *type)
 		if (this->base + this->size != next->base ||
 		    memblock_get_region_node(this) !=
 		    memblock_get_region_node(next) ||
-		    this->flags != next->flags) {
+		    this->flags != next->flags || this->mattr != next->mattr) {
 			BUG_ON(this->base + this->size > next->base);
 			i++;
 			continue;
@@ -471,7 +471,7 @@ static void __init_memblock memblock_merge_regions(struct memblock_type *type)
 static void __init_memblock memblock_insert_region(struct memblock_type *type,
 						   int idx, phys_addr_t base,
 						   phys_addr_t size,
-						   int nid, unsigned long flags)
+						   int nid, unsigned long flags, unsigned long mattr)
 {
 	struct memblock_region *rgn = &type->regions[idx];
 
@@ -480,6 +480,7 @@ static void __init_memblock memblock_insert_region(struct memblock_type *type,
 	rgn->base = base;
 	rgn->size = size;
 	rgn->flags = flags;
+	rgn->mattr = mattr;
 	memblock_set_region_node(rgn, nid);
 	type->cnt++;
 	type->total_size += size;
@@ -503,7 +504,7 @@ static void __init_memblock memblock_insert_region(struct memblock_type *type,
  */
 int __init_memblock memblock_add_range(struct memblock_type *type,
 				phys_addr_t base, phys_addr_t size,
-				int nid, unsigned long flags)
+				int nid, unsigned long flags, unsigned long mattr)
 {
 	bool insert = false;
 	phys_addr_t obase = base;
@@ -520,6 +521,7 @@ int __init_memblock memblock_add_range(struct memblock_type *type,
 		type->regions[0].base = base;
 		type->regions[0].size = size;
 		type->regions[0].flags = flags;
+		type->regions[0].mattr = mattr;
 		memblock_set_region_node(&type->regions[0], nid);
 		type->total_size = size;
 		return 0;
@@ -554,7 +556,7 @@ repeat:
 			if (insert)
 				memblock_insert_region(type, idx++, base,
 						       rbase - base, nid,
-						       flags);
+						       flags, mattr);
 		}
 		/* area below @rend is dealt with, forget about it */
 		base = min(rend, end);
@@ -565,7 +567,7 @@ repeat:
 		nr_new++;
 		if (insert)
 			memblock_insert_region(type, idx, base, end - base,
-					       nid, flags);
+					       nid, flags, mattr);
 	}
 
 	if (!nr_new)
@@ -590,17 +592,17 @@ repeat:
 int __init_memblock memblock_add_node(phys_addr_t base, phys_addr_t size,
 				       int nid)
 {
-	return memblock_add_range(&memblock.memory, base, size, nid, 0);
+	return memblock_add_range(&memblock.memory, base, size, nid, 0, 0);
 }
 
-int __init_memblock memblock_add(phys_addr_t base, phys_addr_t size)
+int __init_memblock memblock_add(phys_addr_t base, phys_addr_t size, unsigned long mattr)
 {
 	phys_addr_t end = base + size - 1;
 
 	memblock_dbg("memblock_add: [%pa-%pa] %pF\n",
 		     &base, &end, (void *)_RET_IP_);
 
-	return memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0);
+	return memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0, mattr);
 }
 
 /**
@@ -656,7 +658,7 @@ static int __init_memblock memblock_isolate_range(struct memblock_type *type,
 			type->total_size -= base - rbase;
 			memblock_insert_region(type, idx, rbase, base - rbase,
 					       memblock_get_region_node(rgn),
-					       rgn->flags);
+					       rgn->flags, rgn->mattr);
 		} else if (rend > end) {
 			/*
 			 * @rgn intersects from above.  Split and redo the
@@ -667,7 +669,7 @@ static int __init_memblock memblock_isolate_range(struct memblock_type *type,
 			type->total_size -= end - rbase;
 			memblock_insert_region(type, idx--, rbase, end - rbase,
 					       memblock_get_region_node(rgn),
-					       rgn->flags);
+					       rgn->flags, rgn->mattr);
 		} else {
 			/* @rgn is fully contained, record it */
 			if (!*end_rgn)
@@ -718,7 +720,7 @@ int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 	memblock_dbg("memblock_reserve: [%pa-%pa] %pF\n",
 		     &base, &end, (void *)_RET_IP_);
 
-	return memblock_add_range(&memblock.reserved, base, size, MAX_NUMNODES, 0);
+	return memblock_add_range(&memblock.reserved, base, size, MAX_NUMNODES, 0, 0);
 }
 
 /**
@@ -959,6 +961,100 @@ void __init_memblock __next_mem_range(u64 *idx, int nid, ulong flags,
 	*idx = ULLONG_MAX;
 }
 
+void __init_memblock __next_mem_range_mod(u64 *idx, int nid, ulong flags, unsigned long mattr,
+				      struct memblock_type *type_a,
+				      struct memblock_type *type_b,
+				      phys_addr_t *out_start,
+				      phys_addr_t *out_end, int *out_nid)
+{
+	int idx_a = *idx & 0xffffffff;
+	int idx_b = *idx >> 32;
+
+	if (WARN_ONCE(nid == MAX_NUMNODES,
+	"Usage of MAX_NUMNODES is deprecated. Use NUMA_NO_NODE instead\n"))
+		nid = NUMA_NO_NODE;
+
+	for (; idx_a < type_a->cnt; idx_a++) {
+		struct memblock_region *m = &type_a->regions[idx_a];
+
+		phys_addr_t m_start = m->base;
+		phys_addr_t m_end = m->base + m->size;
+		int	    m_nid = memblock_get_region_node(m);
+
+		/* only memory regions are associated with nodes, check it */
+		if (nid != NUMA_NO_NODE && nid != m_nid)
+			continue;
+
+		/* skip hotpluggable memory regions if needed */
+		if (movable_node_is_enabled() && memblock_is_hotpluggable(m))
+			continue;
+
+		/* if we want mirror memory skip non-mirror memory regions */
+		if ((flags & MEMBLOCK_MIRROR) && !memblock_is_mirror(m))
+			continue;
+
+		/* skip nomap memory unless we were asked for it explicitly */
+		if (!(flags & MEMBLOCK_NOMAP) && memblock_is_nomap(m))
+			continue;
+
+		if (m->mattr != mattr)
+			continue;
+
+		if (!type_b) {
+			if (out_start)
+				*out_start = m_start;
+			if (out_end)
+				*out_end = m_end;
+			if (out_nid)
+				*out_nid = m_nid;
+			idx_a++;
+			*idx = (u32)idx_a | (u64)idx_b << 32;
+			return;
+		}
+
+		/* scan areas before each reservation */
+		for (; idx_b < type_b->cnt + 1; idx_b++) {
+			struct memblock_region *r;
+			phys_addr_t r_start;
+			phys_addr_t r_end;
+
+			r = &type_b->regions[idx_b];
+			r_start = idx_b ? r[-1].base + r[-1].size : 0;
+			r_end = idx_b < type_b->cnt ?
+				r->base : ULLONG_MAX;
+
+			/*
+			 * if idx_b advanced past idx_a,
+			 * break out to advance idx_a
+			 */
+			if (r_start >= m_end)
+				break;
+			/* if the two regions intersect, we're done */
+			if (m_start < r_end) {
+				if (out_start)
+					*out_start =
+						max(m_start, r_start);
+				if (out_end)
+					*out_end = min(m_end, r_end);
+				if (out_nid)
+					*out_nid = m_nid;
+				/*
+				 * The region which ends first is
+				 * advanced for the next iteration.
+				 */
+				if (m_end <= r_end)
+					idx_a++;
+				else
+					idx_b++;
+				*idx = (u32)idx_a | (u64)idx_b << 32;
+				return;
+			}
+		}
+	}
+
+	/* signal end of iteration */
+	*idx = ULLONG_MAX;
+}
 /**
  * __next_mem_range_rev - generic next function for for_each_*_range_rev()
  *
@@ -1755,7 +1851,7 @@ phys_addr_t __init_memblock memblock_get_current_limit(void)
 static void __init_memblock memblock_dump(struct memblock_type *type)
 {
 	phys_addr_t base, end, size;
-	unsigned long flags;
+	unsigned long flags, mattr;
 	int idx;
 	struct memblock_region *rgn;
 
@@ -1768,13 +1864,14 @@ static void __init_memblock memblock_dump(struct memblock_type *type)
 		size = rgn->size;
 		end = base + size - 1;
 		flags = rgn->flags;
+		mattr = rgn->mattr;
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
 		if (memblock_get_region_node(rgn) != MAX_NUMNODES)
 			snprintf(nid_buf, sizeof(nid_buf), " on node %d",
 				 memblock_get_region_node(rgn));
 #endif
-		pr_info(" %s[%#x]\t[%pa-%pa], %pa bytes%s flags: %#lx\n",
-			type->name, idx, &base, &end, &size, nid_buf, flags);
+		pr_info(" %s[%#x]\t[%pa-%pa], %pa bytes%s flags: %#lx mattr: %#lx\n",
+			type->name, idx, &base, &end, &size, nid_buf, flags, mattr);
 	}
 }
 
@@ -1799,6 +1896,11 @@ memblock_reserved_memory_within(phys_addr_t start_addr, phys_addr_t end_addr)
 	}
 
 	return size;
+}
+
+void __init_memblock __memblock_dump_memory(void)
+{
+	memblock_dump(&memblock.memory);
 }
 
 void __init_memblock __memblock_dump_all(void)
