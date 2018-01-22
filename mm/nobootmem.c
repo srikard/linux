@@ -128,6 +128,20 @@ static unsigned long __init __free_memory_core(phys_addr_t start,
 	return end_pfn - start_pfn;
 }
 
+static unsigned long count = 0;
+
+void mark_memory_attribute(phys_addr_t start, phys_addr_t end)
+{
+	unsigned long start_pfn = PFN_UP(start);
+	unsigned long end_pfn = PFN_DOWN(end);
+	unsigned long pfn;
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn++, count++)
+		pfn_to_page(pfn)->flags |= __PG_ATTRIBUTE;
+
+	printk("XXX: Total %lu count pages marked\n", count);
+}
+
 static unsigned long __init free_low_memory_core_early(void)
 {
 	unsigned long count = 0;
@@ -153,8 +167,10 @@ static unsigned long __init free_low_memory_core_early(void)
 	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_2, &start, &end, NULL)
 		count += __free_memory_core(start, end);
 
-	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_3, &start, &end, NULL)
+	for_each_free_mem_range_mod(i, NUMA_NO_NODE, MEMBLOCK_NONE, MEMBLOCK_MATTR_3, &start, &end, NULL) {
+		mark_memory_attribute(start, end);
 		count += __free_memory_core(start, end);
+	}
 
 	return count;
 }

@@ -806,6 +806,9 @@ new_range:
 
 	/* Create a dummy nodes and move attribute memory there */
 	for_each_memblock(memory, reg) {
+		if (reg->mattr == MEMBLOCK_MATTR_0)
+			memblock_set_node(reg->base, reg->size, &memblock.memory, 2);
+
 		if (reg->mattr == MEMBLOCK_MATTR_1)
 			memblock_set_node(reg->base, reg->size, &memblock.memory, 100);
 
@@ -818,7 +821,6 @@ new_range:
 	node_set_online(100);
 	node_set_online(101);
 	node_set_online(102);
-
 	return 0;
 }
 

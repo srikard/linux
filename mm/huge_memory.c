@@ -232,6 +232,130 @@ static ssize_t memblock_store(struct kobject *kobj,
 	return 0;
 }
 
+void zone_page_stat_dump(struct zone *zone)
+{
+	struct page *page, *next;
+	unsigned long order, migrate_type;
+	unsigned long nr_pages[MAX_ORDER][MIGRATE_TYPES];
+	char buf[200];
+	int ret;
+
+	printk("NODE[%d] free_area stats\n", zone->zone_pgdat->node_id);
+	memset(nr_pages, 0, sizeof(nr_pages));
+	for (order = 0; order < MAX_ORDER; order++) {
+		for (migrate_type = 0; migrate_type < MIGRATE_TYPES; migrate_type++) {
+			list_for_each_entry_safe(page, next, &zone->free_area[order].free_list[migrate_type], lru)
+				nr_pages[order][migrate_type]++;
+		}
+	}
+
+	for (order = 0; order < MAX_ORDER; order++) {
+		memset(buf, 0, sizeof(buf));
+
+		ret = sprintf(buf, "[%lu] ", order);
+		for (migrate_type = 0; migrate_type < MIGRATE_TYPES; migrate_type++) {
+			ret += sprintf(buf + ret, "%lu ", nr_pages[order][migrate_type]);
+		}
+		printk("%s\n", buf);
+	}
+
+	printk("NODE[%d] free_area_mattr stats\n", zone->zone_pgdat->node_id);
+	memset(nr_pages, 0, sizeof(nr_pages));
+	for (order = 0; order < MAX_ORDER; order++) {
+		for (migrate_type = 0; migrate_type < MIGRATE_TYPES; migrate_type++) {
+			list_for_each_entry_safe(page, next, &zone->free_area_mattr[order].free_list[migrate_type], lru)
+				nr_pages[order][migrate_type]++;
+		}
+	}
+
+	for (order = 0; order < MAX_ORDER; order++) {
+		memset(buf, 0, sizeof(buf));
+
+		ret = sprintf(buf, "[%lu] ", order);
+		for (migrate_type = 0; migrate_type < MIGRATE_TYPES; migrate_type++) {
+			ret += sprintf(buf + ret, "%lu ", nr_pages[order][migrate_type]);
+		}
+		printk("%s\n", buf);
+	}
+}
+
+/*
+void zone_page_stat_dump(struct zone *zone)
+{
+	struct page *page, *next;
+	unsigned long nr_unmovable, nr_movable, nr_reclaimable, nr_pcptype, nr_highatomic, nr_cma, nr_isolate;
+
+	nr_unmovable = nr_movable = nr_reclaimable = nr_pcptype = nr_highatomic = nr_cma = nr_isolate = 0;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_UNMOVABLE], lru)
+		nr_unmovable++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_MOVABLE], lru)
+		nr_movable++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_RECLAIMABLE], lru)
+		nr_reclaimable++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_PCPTYPES], lru)
+		nr_pcptype++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_HIGHATOMIC], lru)
+		nr_highatomic++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_CMA], lru)
+		nr_cma++;
+	list_for_each_entry_safe(page, next, &zone->free_area->free_list[MIGRATE_ISOLATE], lru)
+		nr_isolate++;
+	printk("XXX: %lu %lu %lu %lu %lu %lu %lu\n",
+			nr_unmovable, nr_movable, nr_reclaimable, nr_pcptype, nr_highatomic, nr_cma, nr_isolate);
+
+	nr_unmovable = nr_movable = nr_reclaimable = nr_pcptype = nr_highatomic = nr_cma = nr_isolate = 0;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_UNMOVABLE], lru)
+		nr_unmovable++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_MOVABLE], lru)
+		nr_movable++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_RECLAIMABLE], lru)
+		nr_reclaimable++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_PCPTYPES], lru)
+		nr_pcptype++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_HIGHATOMIC], lru)
+		nr_highatomic++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_CMA], lru)
+		nr_cma++;
+	list_for_each_entry_safe(page, next, &zone->free_area_mattr->free_list[MIGRATE_ISOLATE], lru)
+		nr_isolate++;
+	printk("XXX: %lu %lu %lu %lu %lu %lu %lu\n",
+			nr_unmovable, nr_movable, nr_reclaimable, nr_pcptype, nr_highatomic, nr_cma, nr_isolate);
+
+
+}
+*/
+
+void free_area_mattr_dump(int nid)
+{
+	struct zone *zone;
+
+	for_each_populated_zone(zone) {
+		if (zone->zone_pgdat->node_id != nid)
+			continue;
+		printk("XXX free_area_mattr->nr_free %lu\n", zone->free_area_mattr->nr_free);
+		printk("XXX free_area->nr_free %lu\n", zone->free_area->nr_free);
+		zone_page_stat_dump(zone);
+	}
+}
+
+static ssize_t free_area_mattr_show(struct kobject *kobj,
+			   struct kobj_attribute *attr, char *buf)
+{
+	free_area_mattr_dump(2);
+	free_area_mattr_dump(100);
+	free_area_mattr_dump(101);
+	free_area_mattr_dump(102);
+	return sprintf(buf, "Check dmesg for memblock details\n");
+}
+
+static ssize_t free_area_mattr_store(struct kobject *kobj,
+			    struct kobj_attribute *attr,
+			    const char *buf, size_t count)
+{
+	return 0;
+}
+
+
 static ssize_t defrag_show(struct kobject *kobj,
 			   struct kobj_attribute *attr, char *buf)
 {
@@ -291,6 +415,9 @@ static struct kobj_attribute defrag_attr =
 static struct kobj_attribute memblock_attr =
 	__ATTR(memblock, 0644, memblock_show, memblock_store);
 
+static struct kobj_attribute free_area_mattr_attr =
+	__ATTR(free_area_mattr, 0644, free_area_mattr_show, free_area_mattr_store);
+
 static ssize_t use_zero_page_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
@@ -336,6 +463,7 @@ static struct attribute *hugepage_attr[] = {
 	&enabled_attr.attr,
 	&defrag_attr.attr,
 	&memblock_attr.attr,
+	&free_area_mattr_attr.attr,
 	&use_zero_page_attr.attr,
 	&hpage_pmd_size_attr.attr,
 #if defined(CONFIG_SHMEM) && defined(CONFIG_TRANSPARENT_HUGE_PAGECACHE)

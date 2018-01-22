@@ -829,6 +829,12 @@ static inline void __free_one_page(struct page *page,
 	VM_BUG_ON_PAGE(pfn & ((1 << order) - 1), page);
 	VM_BUG_ON_PAGE(bad_range(zone, page), page);
 
+	/*
+	printk_ratelimited("%s got called \n", __func__);
+	if (page->flags & __PG_ATTRIBUTE)
+		printk_ratelimited("PFN %lu marked __PG_ATTRIBUTE\n", pfn);
+	*/
+
 continue_merging:
 	while (order < max_order - 1) {
 		buddy_pfn = __find_buddy_pfn(pfn, order);
@@ -904,9 +910,17 @@ done_merging:
 		}
 	}
 
-	list_add(&page->lru, &zone->free_area[order].free_list[migratetype]);
+	if (page->flags & __PG_ATTRIBUTE) {
+		list_add(&page->lru, &zone->free_area_mattr[order].free_list[migratetype]);
+	} else {
+		list_add(&page->lru, &zone->free_area[order].free_list[migratetype]);
+	}
 out:
-	zone->free_area[order].nr_free++;
+	if (page->flags & __PG_ATTRIBUTE) {
+		zone->free_area_mattr[order].nr_free++;
+	} else {
+		zone->free_area[order].nr_free++;
+	}
 }
 
 /*
@@ -5418,7 +5432,9 @@ static void __meminit zone_init_free_lists(struct zone *zone)
 	unsigned int order, t;
 	for_each_migratetype_order(order, t) {
 		INIT_LIST_HEAD(&zone->free_area[order].free_list[t]);
+		INIT_LIST_HEAD(&zone->free_area_mattr[order].free_list[t]);
 		zone->free_area[order].nr_free = 0;
+		zone->free_area_mattr[order].nr_free = 0;
 	}
 }
 
