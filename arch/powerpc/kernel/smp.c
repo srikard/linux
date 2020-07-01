@@ -80,6 +80,7 @@ DEFINE_PER_CPU(cpumask_var_t, cpu_sibling_map);
 DEFINE_PER_CPU(cpumask_var_t, cpu_smallcore_map);
 DEFINE_PER_CPU(cpumask_var_t, cpu_l2_cache_map);
 DEFINE_PER_CPU(cpumask_var_t, cpu_core_map);
+DEFINE_PER_CPU(cpumask_var_t, cpu_coregroup_map);
 
 EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 EXPORT_PER_CPU_SYMBOL(cpu_l2_cache_map);
@@ -91,6 +92,7 @@ enum {
 	smt_idx,
 #endif
 	bigcore_idx,
+	mc_idx,
 	die_idx,
 };
 
@@ -869,6 +871,21 @@ static const struct cpumask *smallcore_smt_mask(int cpu)
 }
 #endif
 
+static struct cpumask *cpu_coregroup_mask(int cpu)
+{
+	return per_cpu(cpu_coregroup_map, cpu);
+}
+
+static bool has_coregroup_support(void)
+{
+	return coregroup_enabled;
+}
+
+static const struct cpumask *cpu_mc_mask(int cpu)
+{
+	return cpu_coregroup_mask(cpu);
+}
+
 static const struct cpumask *cpu_bigcore_mask(int cpu)
 {
 	return per_cpu(cpu_sibling_map, cpu);
@@ -879,6 +896,7 @@ static struct sched_domain_topology_level powerpc_topology[] = {
 	{ cpu_smt_mask, powerpc_smt_flags, SD_INIT_NAME(SMT) },
 #endif
 	{ cpu_bigcore_mask, SD_INIT_NAME(BIGCORE) },
+	{ cpu_mc_mask, SD_INIT_NAME(MC) },
 	{ cpu_cpu_mask, SD_INIT_NAME(DIE) },
 	{ NULL, },
 };
@@ -925,6 +943,10 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 					GFP_KERNEL, cpu_to_node(cpu));
 		zalloc_cpumask_var_node(&per_cpu(cpu_core_map, cpu),
 					GFP_KERNEL, cpu_to_node(cpu));
+		if (has_coregroup_support())
+			zalloc_cpumask_var_node(&per_cpu(cpu_coregroup_map, cpu),
+						GFP_KERNEL, cpu_to_node(cpu));
+
 #ifdef CONFIG_NEED_MULTIPLE_NODES
 		/*
 		 * numa_node_id() works after this.
@@ -941,6 +963,9 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	cpumask_set_cpu(boot_cpuid, cpu_sibling_mask(boot_cpuid));
 	cpumask_set_cpu(boot_cpuid, cpu_l2_cache_mask(boot_cpuid));
 	cpumask_set_cpu(boot_cpuid, cpu_core_mask(boot_cpuid));
+
+	if (has_coregroup_support())
+		cpumask_set_cpu(boot_cpuid, cpu_coregroup_mask(boot_cpuid));
 
 	init_big_cores();
 	if (has_big_cores) {
@@ -1233,6 +1258,8 @@ static void remove_cpu_from_masks(int cpu)
 		set_cpus_unrelated(cpu, i, cpu_sibling_mask);
 		if (has_big_cores)
 			set_cpus_unrelated(cpu, i, cpu_smallcore_mask);
+		if (has_coregroup_support())
+			set_cpus_unrelated(cpu, i, cpu_coregroup_mask);
 	}
 }
 #endif
@@ -1292,6 +1319,20 @@ static void add_cpu_to_masks(int cpu)
 
 	add_cpu_to_smallcore_masks(cpu);
 	update_mask_by_l2(cpu, cpu_l2_cache_mask);
+
+	if (has_coregroup_support()) {
+		int coregroup_id = cpu_to_coregroup_id(cpu);
+
+		cpumask_set_cpu(cpu, cpu_coregroup_mask(cpu));
+		for_each_cpu_and(i, cpu_online_mask, cpu_cpu_mask(cpu)) {
+			int fcpu = cpu_first_thread_sibling(i);
+
+			if (fcpu == first_thread)
+				set_cpus_related(cpu, i, cpu_coregroup_mask);
+			else if (coregroup_id == cpu_to_coregroup_id(i))
+				set_cpus_related(cpu, i, cpu_coregroup_mask);
+		}
+	}
 
 	if (pkg_id == -1) {
 		struct cpumask *(*mask)(int) = cpu_sibling_mask;
@@ -1398,6 +1439,9 @@ static void fixup_topology(void)
 		powerpc_topology[bigcore_idx].name = "CACHE";
 #endif
 	}
+
+	if (!has_coregroup_support())
+		powerpc_topology[mc_idx].mask = powerpc_topology[bigcore_idx].mask;
 }
 
 void __init smp_cpus_done(unsigned int max_cpus)
