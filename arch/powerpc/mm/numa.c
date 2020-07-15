@@ -432,16 +432,15 @@ static int of_get_assoc_arrays(struct assoc_arrays *aa)
 static int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 {
 	struct assoc_arrays aa = { .arrays = NULL };
-	int default_nid = NUMA_NO_NODE;
-	int nid = default_nid;
+	int nid = NUMA_NO_NODE;
 	int rc, index;
 
 	if ((min_common_depth < 0) || !numa_enabled)
-		return default_nid;
+		return NUMA_NO_NODE;
 
 	rc = of_get_assoc_arrays(&aa);
 	if (rc)
-		return default_nid;
+		return NUMA_NO_NODE;
 
 	if (min_common_depth <= aa.array_sz &&
 	    !(lmb->flags & DRCONF_MEM_AI_INVALID) && lmb->aa_index < aa.n_arrays) {
@@ -449,7 +448,7 @@ static int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 		nid = of_read_number(&aa.arrays[index], 1);
 
 		if (nid == 0xffff || nid >= nr_node_ids)
-			nid = default_nid;
+			nid = NUMA_NO_NODE;
 
 		if (nid > 0) {
 			index = lmb->aa_index * aa.array_sz;
