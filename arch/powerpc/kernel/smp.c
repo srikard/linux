@@ -988,12 +988,14 @@ static int __init init_thread_group_cache_map(int cpu, int cache_property)
 }
 
 static bool shared_caches;
+static __ro_after_init DEFINE_STATIC_KEY_FALSE(splpar_asym_pack);
 
 #ifdef CONFIG_SCHED_SMT
 /* cpumask of CPUs with asymmetric SMT dependency */
 static int powerpc_smt_flags(void)
 {
-	if (cpu_has_feature(CPU_FTR_ASYM_SMT))
+	if (cpu_has_feature(CPU_FTR_ASYM_SMT) ||
+			static_branch_unlikely(&splpar_asym_pack))
 		return SD_SHARE_CPUCAPACITY | SD_SHARE_PKG_RESOURCES | SD_ASYM_PACKING;
 
 	return SD_SHARE_CPUCAPACITY | SD_SHARE_PKG_RESOURCES;
@@ -1008,7 +1010,18 @@ static int powerpc_smt_flags(void)
  */
 static int powerpc_shared_cache_flags(void)
 {
+	if (static_branch_unlikely(&splpar_asym_pack))
+		return SD_SHARE_PKG_RESOURCES | SD_ASYM_PACKING;
+
 	return SD_SHARE_PKG_RESOURCES;
+}
+
+static int powerpc_shared_proc_flags(void)
+{
+	if (static_branch_unlikely(&splpar_asym_pack))
+		return SD_ASYM_PACKING;
+
+	return 0;
 }
 
 /*
@@ -1047,8 +1060,8 @@ static struct sched_domain_topology_level powerpc_topology[] = {
 	{ cpu_smt_mask, powerpc_smt_flags, SD_INIT_NAME(SMT) },
 #endif
 	{ shared_cache_mask, powerpc_shared_cache_flags, SD_INIT_NAME(CACHE) },
-	{ cpu_mc_mask, SD_INIT_NAME(MC) },
-	{ cpu_cpu_mask, SD_INIT_NAME(DIE) },
+	{ cpu_mc_mask, powerpc_shared_proc_flags, SD_INIT_NAME(MC) },
+	{ cpu_cpu_mask, powerpc_shared_proc_flags, SD_INIT_NAME(DIE) },
 	{ NULL, },
 };
 
@@ -1682,6 +1695,9 @@ void start_secondary(void *unused)
 static void __init fixup_topology(void)
 {
 	int i;
+
+	if (is_shared_processor() && has_big_cores)
+		static_branch_enable(&splpar_asym_pack);
 
 #ifdef CONFIG_SCHED_SMT
 	if (cpu_has_feature(CPU_FTR_ASYM_SMT))
