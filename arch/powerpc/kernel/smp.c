@@ -1516,10 +1516,11 @@ static void update_coregroup_mask(int cpu, cpumask_var_t *mask)
 	int coregroup_id = cpu_to_coregroup_id(cpu);
 	int i;
 
-	if (shared_caches)
+	/* Coregroup identification not available on shared systems */
+	if (shared_caches || is_shared_processor())
 		submask_fn = cpu_l2_cache_mask;
 
-	if (!*mask) {
+	if (!*mask || is_shared_processor()) {
 		/* Assume only siblings are part of this CPU's coregroup */
 		for_each_cpu(i, submask_fn(cpu))
 			set_cpus_related(cpu, i, cpu_coregroup_mask);
