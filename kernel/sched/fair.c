@@ -9931,11 +9931,13 @@ static int idle_cpu_without(int cpu, struct task_struct *p)
  * @group: sched_group whose statistics are to be updated.
  * @sgs: variable to hold the statistics for this group.
  * @p: The task for which we look for the idlest group/CPU.
+ * @this_cpu: current cpu
  */
 static inline void update_sg_wakeup_stats(struct sched_domain *sd,
 					  struct sched_group *group,
 					  struct sg_lb_stats *sgs,
-					  struct task_struct *p)
+					  struct task_struct *p,
+					  int this_cpu)
 {
 	int i, nr_running;
 
@@ -9970,6 +9972,11 @@ static inline void update_sg_wakeup_stats(struct sched_domain *sd,
 		    task_fits_cpu(p, i))
 			sgs->group_misfit_task_load = 0;
 
+	}
+
+	if (sd->flags & SD_ASYM_PACKING && sgs->sum_h_nr_running &&
+			sched_asym_prefer(group->asym_prefer_cpu, this_cpu)) {
+		sgs->group_asym_packing = 1;
 	}
 
 	sgs->group_capacity = group->sgc->capacity;
@@ -10012,8 +10019,17 @@ static bool update_pick_idlest(struct sched_group *idlest,
 			return false;
 		break;
 
-	case group_imbalanced:
 	case group_asym_packing:
+		if (sched_asym_prefer(group->asym_prefer_cpu, idlest->asym_prefer_cpu)) {
+			int busy_cpus = idlest_sgs->group_weight - idlest_sgs->idle_cpus;
+
+			busy_cpus -= (sgs->group_weight - sgs->idle_cpus);
+			if (busy_cpus >= 0)
+				return true;
+		}
+		return false;
+
+	case group_imbalanced:
 	case group_smt_balance:
 		/* Those types are not used in the slow wakeup path */
 		return false;
@@ -10080,7 +10096,7 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 			sgs = &tmp_sgs;
 		}
 
-		update_sg_wakeup_stats(sd, group, sgs, p);
+		update_sg_wakeup_stats(sd, group, sgs, p, this_cpu);
 
 		if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
 			idlest = group;
@@ -10111,6 +10127,17 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 	 */
 	if (local_sgs.group_type > idlest_sgs.group_type)
 		return idlest;
+
+	if (idlest_sgs.group_type == group_asym_packing) {
+		if (sched_asym_prefer(idlest->asym_prefer_cpu, local->asym_prefer_cpu)) {
+			int busy_cpus = local_sgs.group_weight - local_sgs.idle_cpus;
+
+			busy_cpus -= (idlest_sgs.group_weight - idlest_sgs.idle_cpus);
+			if (busy_cpus >= 0)
+				return idlest;
+		}
+		return NULL;
+	}
 
 	switch (local_sgs.group_type) {
 	case group_overloaded:
